@@ -2,9 +2,6 @@ import re
 import pytesseract
 from pdf2image import convert_from_path
 
-# If on Windows, specify Tesseract path like this:
-# pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
 def extract_text_from_scanned_pdf(pdf_path):
     try:
         images = convert_from_path(pdf_path)
@@ -19,19 +16,15 @@ def extract_text_from_scanned_pdf(pdf_path):
     except Exception as e:
         print("❌ Error:", e)
         return None
-
 def review_cv(cv_text):
     print("\n📄 CV REVIEW REPORT")
     print("=" * 40)
-
     # Length
     words = len(cv_text.split())
     print(f"\n📝 Word count: {words}")
-
     # Sections
     for sec in ["education", "experience", "skills"]:
         print(f"{'✅' if sec in cv_text else '❌'} {sec.capitalize()}")
-
     # Email
     print("✅ Email found" if re.search(r'\S+@\S+\.\S+', cv_text) else "❌ No email")
 
