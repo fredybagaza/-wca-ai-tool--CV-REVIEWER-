@@ -44,4 +44,4 @@ def main():
         review_cv(text)
 
 if __name__ == "__main__":
-    main()C:\Users\admin\Downloads\cv.pdf.pdf
+    main()
