@@ -1,61 +1,47 @@
 # -wca-ai-tool--CV-REVIEWER-
+ from flask import Flask, render_template, request
 import PyPDF2
 import pytesseract
 from PIL import Image
-import tkinter as tk
-from tkinter import filedialog
 import os
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-# 🔴 SET YOUR TESSERACT PATH (Windows users)
+app = Flask(__name__)
+
+# 🔴 SET THIS PATH (Windows)
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 
-def select_file():
-    root = tk.Tk()
-    root.withdraw()
-
-    file_path = filedialog.askopenfilename(
-        title="Select your CV",
-        filetypes=[
-            ("All supported", "*.pdf *.png *.jpg *.jpeg"),
-            ("PDF files", "*.pdf"),
-            ("Image files", "*.png *.jpg *.jpeg")
-        ]
-    )
-    return file_path
-
-
-def read_pdf(file_path):
+# -------- FILE READING --------
+def read_pdf(file):
     text = ""
-    with open(file_path, "rb") as file:
-        reader = PyPDF2.PdfReader(file)
-        for page in reader.pages:
-            text += page.extract_text() or ""
+    reader = PyPDF2.PdfReader(file)
+    for page in reader.pages:
+        text += page.extract_text() or ""
     return text.lower()
 
 
-def read_image(file_path):
-    image = Image.open(file_path)
+def read_image(file):
+    image = Image.open(file)
     text = pytesseract.image_to_string(image)
     return text.lower()
 
 
-def extract_text(file_path):
-    ext = os.path.splitext(file_path)[1].lower()
-
-    if ext == ".pdf":
-        return read_pdf(file_path)
-    elif ext in [".png", ".jpg", ".jpeg"]:
-        return read_image(file_path)
-    else:
-        return ""
+def extract_text(file):
+    filename = file.filename.lower()
+    if filename.endswith(".pdf"):
+        return read_pdf(file)
+    elif filename.endswith((".png", ".jpg", ".jpeg")):
+        return read_image(file)
+    return ""
 
 
+# -------- SCORING --------
 def score_cv(text):
     score = 0
     feedback = []
 
-    # Sections (60 points)
     sections = {
         "education": 15,
         "experience": 20,
@@ -63,75 +49,87 @@ def score_cv(text):
         "projects": 10
     }
 
-    for section, points in sections.items():
+    for section, pts in sections.items():
         if section in text:
-            score += points
-            feedback.append(f"✅ {section.capitalize()} section found (+{points})")
+            score += pts
+            feedback.append(f"{section} ✔ (+{pts})")
         else:
-            feedback.append(f"❌ Missing {section.capitalize()} section (0/{points})")
+            feedback.append(f"{section} ❌ (0/{pts})")
 
-    # Contact info (10 points)
     if "@" in text:
         score += 10
-        feedback.append("✅ Email found (+10)")
+        feedback.append("email ✔ (+10)")
     else:
-        feedback.append("❌ Missing email (0/10)")
+        feedback.append("email ❌")
 
-    # Length check (10 points)
     if len(text) > 1000:
         score += 10
-        feedback.append("✅ Good CV length (+10)")
+        feedback.append("good length ✔ (+10)")
     else:
-        feedback.append("⚠️ CV too short (0/10)")
+        feedback.append("too short ⚠")
 
-    # Keywords (20 points)
-    keywords = ["python", "java", "teamwork", "communication", "leadership"]
-    found = sum(1 for word in keywords if word in text)
-    keyword_score = (found / len(keywords)) * 20
-    score += keyword_score
-
-    feedback.append(f"✅ Keywords score: {int(keyword_score)}/20")
+    keywords = ["python", "teamwork", "leadership", "communication"]
+    found = sum(1 for k in keywords if k in text)
+    score += (found / len(keywords)) * 20
 
     return int(score), feedback
 
 
-def main():
-    print("Select your CV (PDF or Image)...")
+# -------- AI FEEDBACK --------
+def smart_feedback(text):
+    tips = []
 
-    file_path = select_file()
+    if "responsible for" in text:
+        tips.append("👉 Replace 'responsible for' with action verbs (e.g. 'developed', 'led')")
 
-    if not file_path:
-        print("No file selected.")
-        return
+    if "i" in text:
+        tips.append("👉 Avoid using 'I' in CV")
 
-    try:
-        text = extract_text(file_path)
+    if len(text.split()) < 300:
+        tips.append("👉 Add more details to your experience")
 
-        if not text.strip():
-            print("Could not extract text. Try a clearer file.")
-            return
+    if "project" not in text:
+        tips.append("👉 Add projects to strengthen your CV")
+
+    return tips
+
+
+# -------- JOB MATCHING --------
+def job_match(cv_text, job_text):
+    docs = [cv_text, job_text]
+
+    vectorizer = CountVectorizer().fit_transform(docs)
+    vectors = vectorizer.toarray()
+
+    similarity = cosine_similarity(vectors)[0][1]
+    return int(similarity * 100)
+
+
+# -------- ROUTE --------
+@app.route("/", methods=["GET", "POST"])
+def index():
+    result = {}
+
+    if request.method == "POST":
+        file = request.files["cv"]
+        job_desc = request.form["job"]
+
+        text = extract_text(file)
 
         score, feedback = score_cv(text)
+        tips = smart_feedback(text)
+        match = job_match(text, job_desc)
 
-        print("\n--- CV ANALYSIS RESULT ---")
-        print(f"⭐ CV Score: {score}/100\n")
+        result = {
+            "score": score,
+            "feedback": feedback,
+            "tips": tips,
+            "match": match
+        }
 
-        for item in feedback:
-            print(item)
-
-        print("\n💡 Tips:")
-        if score < 50:
-            print("- Add more sections like projects and skills")
-            print("- Improve CV content and structure")
-        elif score < 80:
-            print("- Add more strong keywords")
-            print("- Improve experience descriptions")
-        else:
-            print("- Great CV! Just fine-tune formatting")
-
-    except Exception as e:
-        print("Error:", e)
+    return render_template("index.html", result=result)
 
 
 if __name__ == "__main__":
-    main()
+    app.run(debug=True)
+
